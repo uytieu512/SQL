@@ -420,5 +420,193 @@ B.SOPHIMWIN*100/A.SOPHIM AS TILEPHIMWIN
 FROM A LEFT JOIN B ON A.ActorID = B.ActorID
 
 
+--Task 13
+--Sử dụng database BANHANG để viết truy vấn lấy các thông tin sau theo từng CHI_NHANH, sử dụng window aggregate functions:
+--MÃ_CHI_NHÁNH
+--Số tiền trung bình mua 1 đơn hàng của CN
+--Tổng số đơn hàng của CN
+--Tổng số đơn hàng toàn hệ thống
+--Phần trăm số đơn hàng của CN so với toàn hệ thống
+SELECT DISTINCT [Store ID],
+				AVG([Số tiền Mua hàng nguyên tệ]) over (partition by [Store ID]) as Average,
+				COUNT([retail bill]) over (partition by [Store ID]) as TONG_HD_CHI_NHANH,
+				COUNT([retail bill]) over () as TONG_HD,
+				COUNT([retail bill]) over (partition by [Store ID]) * 100 / COUNT([retail bill]) over () as PHAN_TRAM
+FROM [BanHang].[BANHANG]
+ORDER BY PHAN_TRAM DESC
+
+--Task14
+--Để xét tăng lương cho nhân viên mã '000-02-7788' dựa trên tình hình kinh doanh. Anh/chị hãy viết truy vấn hiển thị các thông tin sau:
+--Mã nhân viên, tên nhân viên.
+--Doanh số trong 2 năm gần nhất tính theo từng tháng.
+--Mức tăng trưởng (có thể âm) của tháng đó so với tháng liền trước
+--Lũy kế mức tăng trưởng (ý số 3) theo thứ tự tăng dần từ tháng đầu tiên đến tháng cuối cùng của báo cáo (tìm hiểu cách dùng running sum sử dụng window analytic function).
+WITH DS AS (
+		SELECT DISTINCT YEAR([Trans_Time]) AS NAM,
+						MONTH([Trans_Time]) AS THANG,
+						[Mã Nhân viên],
+						[Tên],
+						SUM([Số tiền Mua hàng nguyên tệ]) OVER (PARTITION BY [Sale_man_ID],YEAR([Trans_Time]) , MONTH([Trans_Time])) AS DOANH_SO
+		FROM [BanHang].[NHANVIEN] as NV
+		INNER JOIN [BanHang].[BANHANG] as BH on NV.[Mã Nhân viên] = BH.[Sale_man_ID]
+		WHERE [Mã Nhân viên] = '000-02-7788' AND YEAR(GETDATE()) - YEAR([Trans_Time]) <= 2
+		),
+MTT AS (-- Tính mức tăng trưởng
+		SELECT  *,
+				LAG(DS.DOANH_SO, 1, 0) OVER (ORDER BY NAM,THANG) AS LAG,
+				DS.DOANH_SO - LAG(DS.DOANH_SO, 1, 0) OVER (ORDER BY NAM,THANG) AS MUC_TANG_TRUONG
+		FROM DS
+		)
+SELECT *, SUM(MUC_TANG_TRUONG) OVER (ORDER BY NAM,THANG) AS LUY_KE_TT -- Tính lũy kế
+FROM MTT
+
+--SEQUENCE
+CREATE SEQUENCE SEQ_BITCOIN_TXN_ID
+START WITH 0
+INCREMENT BY 1
+MINVALUE 0
+MAXVALUE 9999
+;
+
+ALTER SEQUENCE SEQ_BITCOIN_TXN_ID
+RESTART WITH 1
+INCREMENT BY 1
+MINVALUE 0
+MAXVALUE 999999999
+
+SELECT TOP 100 * FROM [dbo].[bitcoin_txn]
+
+SELECT * INTO BITCOIN_TXN_NEW
+FROM [dbo].[bitcoin_txn]
+WHERE 1 = 2
+
+--Tạo NONCLUSTERED INDEX cho cột COIN_CODE của bảng [dbo].[BITCOIN_TXN_NEW]
+CREATE NONCLUSTERED INDEX IDX_BITCOIN_TXN_NEW_COIN_CODE
+ON [dbo].[BITCOIN_TXN_NEW](COIN_CODE)
+
+CREATE NONCLUSTERED INDEX IDX_BITCOIN_TXN_NEW_PROCESS_DATE
+ON [dbo].[BITCOIN_TXN_NEW](PROCESS_DATE)
+
+SELECT *
+FROM [dbo].[BITCOIN_TXN_NEW]
+WHERE COIN_CODE = 'DOGEUSDT'
+	AND PROCESS_DATE = 20210808
+	
+--PROCEDURE
+CREATE PROCEDURE prc_hello_day --Ví dụ khác nhau giữa Tham số và Biến
+(@p_tham_so INT) --Tham số
+AS
+DECLARE @v_day int, @v_ket_qua Nvarchar(255); --Biến: Chỉ có thể gọi và sử dụng trong procedure prc_hello_day
+SET @v_day = 0; --Gán giá trị cho Biến
+BEGIN
+	IF @p_tham_so = 0 --Nếu IF ELSE có nhiều câu lệnh thì thêm BEGIN ... END
+	BEGIN
+		SET @v_day = 1 --Biến sẽ có thể thay đổi được giá trị, còn Tham số thì không
+		PRINT(CONCAT('Hi Everyone - Day ', @v_day))
+	END
+	ELSE IF @p_tham_so = 1
+	BEGIN
+		SET @v_day = 2
+		PRINT(CONCAT('Hello, how are you? - Day ', @v_day))
+	END
+	ELSE
+	BEGIN
+		SET @v_day = 3
+		PRINT(CONCAT('Are you OK? - Day ', @v_day))
+	END
+SET @v_ket_qua = CONCAT('Tham so: ', @p_tham_so, ', Bien: ', @v_day);
+PRINT(@v_ket_qua)
+END;
+--Thực thi procedure
+EXECUTE prc_hello_day @p_tham_so = 0;
 
 
+--Task 15
+--Tạo thủ tục prc_get_high_change lấy ra mã coin có chênh lệch của mua so với bán cao nhất khi truyền tham số một ngày nào đó vào thủ tục.
+--Biết rằng khi mã coin có ký tự “-” thì trading_type sẽ mang giá trị BUY and SELL
+--Còn nếu mã coin không có ký tự “-” thì trading_type = 0 là BUY, trading_type = 1 là SELL.
+--Chú ý: Chênh lệch có thể + hoặc -, chỉ tính độ lệch chứ không quan tâm là âm hay dương.
+
+CREATE PROCEDURE prc_get_high_change
+(@p_ngay varchar(50))
+AS
+BEGIN
+	SELECT DISTINCT COIN_CODE, PROCESS_DATE, TOTAL_BUY, TOTAL_SELL, (TOTAL_BUY - TOTAL_SELL) AS CHENH_LECH
+	FROM (
+		SELECT DISTINCT COIN_CODE, PROCESS_DATE,
+		SUM(CASE
+				WHEN TRADING_TYPE = 'BUY' OR TRADING_TYPE = '0' THEN CAST(TOTAL AS FLOAT)
+				ELSE 0  --Phải có Else 0 để có thể tính trừ ở phần chênh lệch, không thì sẽ trả về NULL
+			END) AS TOTAL_BUY,
+		SUM(CASE 
+				WHEN TRADING_TYPE = 'SELL' OR TRADING_TYPE = '1' THEN CAST(TOTAL AS FLOAT)
+				ELSE 0
+			END) AS TOTAL_SELL
+		FROM [dbo].[BITCOIN_TXN_NEW]
+		WHERE PROCESS_DATE = @p_ngay
+		GROUP BY COIN_CODE, PROCESS_DATE
+		) AS A
+	GROUP BY COIN_CODE, PROCESS_DATE, TOTAL_BUY, TOTAL_SELL
+	ORDER BY CHENH_LECH DESC
+END
+
+EXECUTE prc_get_high_change @p_ngay = 20201102;
+
+
+--Task 16
+--Tạo thủ tục prc_count_down mà mỗi khi gọi ra sẽ hiển thị 2 cột:
+--Minute_to_end_date: Tính từ thời điểm gọi đến hết ngày còn bao nhiêu phút
+--Day_to_end_year: Tính từ thời điểm gọi đến hết năm còn bao nhiêu ngày
+--Cách 1
+CREATE PROCEDURE prc_count_down
+AS
+--DATEDIFF(DD, 0, GETDATE()) + 1 : Mốc thời gian mặc định là 1900/01/01 00:00:00, Lấy thời điểm hiện tại 2021/12/16 trừ cho 1900/01/01 trả về 44544 ngày + 1 ngày
+--DATEADD(DD,DATEDIFF(DD, 0, GETDATE()) + 1,0) : Hàm thêm số lượng thời gian (kiểu định dạng Day) cho Mốc thời gian mặc định là 1900/01/01 00:00:00, sau đó trả về định dạng datetime 2021/12/17 00:00:00
+SELECT  DATEDIFF(MI, GETDATE(), DATEADD(DD, DATEDIFF(DD, 0, GETDATE()) + 1,0)) AS Minute_to_end_date, --Lấy 2021/12/17 00:00:00 trừ cho thời điểm thực thi lệnh, kiểu định dạng phút
+		DATEDIFF(DD, GETDATE(), DATEADD(YY, DATEDIFF(YY, 0, GETDATE()) + 1,0)) AS Day_to_end_year
+
+EXECUTE prc_count_down
+
+--Cách 2
+CREATE PROCEDURE prc_count_down_2
+AS
+SELECT  DATEDIFF(MINUTE, GETDATE(), CONVERT(date, GETDATE() + 1)) AS Minute_to_end_date,
+		DATEDIFF(DAY, GETDATE(), DATEADD(YY, DATEDIFF(YY, 0, GETDATE()) + 1, 0)) AS Day_to_end_year
+
+EXECUTE prc_count_down_2
+
+--Cách 3
+SELECT  DATEDIFF(MI, GETDATE(), CONVERT(DATE, DATEADD(DD,1,GETDATE()))) AS Minute_to_end_date, --Covert(date,..) trả về thời gian k có giờ phút giây
+		DATEDIFF(DD, GETDATE(), CONVERT(DATE, DATEADD(YY,DATEDIFF(YY, 0, GETDATE()) + 1, 0))) AS Day_to_end_year --Như cách 2
+
+
+--Task 17
+--Tạo thủ tục prc_get_coin_info hiển thị các thông tin sau: 
+--COIN_CODE 		(Mã tiền KTS)
+--PROCESS_DATE 		(Ngày đánh giá)
+--ORDER_NUM 		(Tổng số giao dịch)
+--TOTAL_AMT 		(Tổng khối lượng GD)
+
+--Yêu cầu:
+--Tham số cho phép truyền vào: 
+--Coin_code
+--Process_date
+--Trading_Type (sẽ truyền 2 loại “buy” hoặc “sell”, không phân biệt chữ hoa, thường)
+
+CREATE PROCEDURE prc_get_coin_info (@p_coin_code varchar(50), @p_process_date varchar(50), @p_trading_type varchar(50))
+AS
+SELECT  DISTINCT COIN_CODE, 
+		PROCESS_DATE,
+		COUNT(TRADING_ID) OVER (PARTITION BY COIN_CODE, PROCESS_DATE, TRADING_TYPE) AS ORDER_NUM, --Hoặc có thể dùng group by
+		SUM(CAST(TOTAL AS FLOAT)) OVER (PARTITION BY COIN_CODE, PROCESS_DATE, TRADING_TYPE) AS TOTAL_AMT
+FROM [dbo].[BITCOIN_TXN_NEW]
+WHERE COIN_CODE = @p_coin_code 
+		AND PROCESS_DATE = @p_process_date 
+		AND (CASE
+				WHEN UPPER(TRADING_TYPE) = 0 THEN 'BUY'  --chuyển về cùng 1 định dạng cho các coin k có ký tự "-" ở giữa
+				WHEN UPPER(TRADING_TYPE) = 1 THEN 'SELL'
+				ELSE UPPER(TRADING_TYPE)
+			END) = UPPER(@p_trading_type) --Ý tưởng ở đây là dù có truyền vào chữ thường thì cũng tự động viết hoa
+ORDER BY COIN_CODE
+
+EXECUTE prc_get_coin_info @p_coin_code = 'ADAUSDT', @p_process_date = '20210808', @p_trading_type = 'sell'
