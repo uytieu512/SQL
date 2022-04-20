@@ -1,2 +1,2 @@
 # SQL
-This is my case study that I've been working on recently
+This is my project that I've been working on recently
